@@ -154,136 +154,6 @@ static int mmc_resource_init(int sdc_no)
 	return 0;
 }
 
-static int mmc_clk_io_onoff(int sdc_no, int onoff)
-{
-	struct sunxi_mmc_host* mmchost = &mmc_host[sdc_no];
-	u32_t rval;
-	//u32_t pll5_clk;
-	u32_t pll6_clk;
-	u32_t div;
-	u32_t n, k, m;
-	u32_t gpioc_base = 0x01c20800 + 0x48;
-	u32_t gpiof_base = 0x01c20800 + 0xb4;
-	u32_t gpiog_base = 0x01c20800 + 0xd8;
-	//u32_t pll5_base = CCMU_PLL5_CLK_BASE;
-	u32_t pll6_base = CCMU_PLL6_CLK_BASE;
-	
-	mmcdbg("init mmc %d clock and io\n", sdc_no);
-	/* config gpio */
-	switch (sdc_no) {
-        case 0:
-            /* D1-PF0, D0-PF1, CLK-PF2, CMD-PF3, D3-PF4, D4-PF5 */
-            if (onoff) {
-	            writel(0x222222, gpiof_base + 0x0);
-	            writel(0x555, gpiof_base + 0x1c);
-	            writel(0xfff, gpiof_base + 0x14);
-	        } else {
-	            writel(0x404044, gpiof_base + 0x0);
-	            writel(0, gpiof_base + 0x1c);
-	            writel(0x555, gpiof_base + 0x14);
-	        }
-            break;
-        case 1:
-        	/* SDC1: PG0-PG5 */
-        	if (onoff) {
-				writel(0x222222, gpiog_base + 0x0);
-				writel(0x555, gpiog_base + 0x1c);
-				writel(0xfff, gpiog_base + 0x14);
-			} else {
-				writel(0x404044, gpiog_base + 0x0);
-				writel(0, gpiog_base + 0x1c);
-				writel(0x555, gpiog_base + 0x14);
-			}
-			break;
-        case 2:
-            /* CMD-PC6, CLK-PC7, D0-PC8, D1-PC9, D2-PC10, D3-PC11 */
-            if (onoff) {
-	            writel(0x33000000, gpioc_base + 0x0);
-	            writel(0x3333, gpioc_base + 0x4);
-	            writel(0x555 << 12, gpioc_base + 0x1c);
-	            writel(0xfff << 12, gpioc_base + 0x14);
-            } else {
-	            writel(0, gpioc_base + 0x0);
-	            writel(0, gpioc_base + 0x4);
-	            writel(0, gpioc_base + 0x1c);
-	            writel(0x55555555, gpioc_base + 0x14);
-            }
-            break;
-
-        default:
-        	mmcinfo("Wrong mmc NO.: %d\n", sdc_no);
-            return -1;
-	}
-	return 0;
-
-	/* config ahb clock */
-	rval = readl(mmchost->hclkbase);
-	if (onoff)
-		rval |= (1 << (8 + sdc_no));
-	else
-		rval &= ~(1 << (8 + sdc_no));
-	writel(rval, mmchost->hclkbase);
-		
-	/* config mod clock */
-	if (onoff) {
-		/*
-		rval = readl(pll5_base);
-		n = (rval >> 8) &  0x1f;
-		k = ((rval >> 4) & 3) + 1;
-		m = (rval & 3) + 1;
-		pll5_clk = 24 * n * k / m;
-		div = (pll5_clk + 25) / 50 - 1;
-		
-		mmcdbg("init mmc n %d, k %d, m %d, pll5clk %d, mbase %x\n", n, k, m, pll5_clk, mmchost->mclkbase);
-		writel((1U << 31) | (2U << 24) | div, mmchost->mclkbase);
-		mmchost->mclk = pll5_clk * 1000000 / (div + 1);
-		mmcdbg("init mmc mclk %d\n", mmchost->mclk);
-		*/
-		rval = readl(pll6_base);
-		n = (rval >> 8) & 0x1f;
-		k = ((rval >> 4) & 3) +1;
-		
-		pll6_clk = (24000000 * n * k) >> 1;
-		
-		div = (2 * pll6_clk + 40000000) / (2 * 40000000);
-		div = div==0 ? 1 : div;
-		if (div > 128) {
-			m = 1;
-			n = 0;
-		} else if (div > 64) {
-			n = 3;
-			m = div >> 3;
-		} else if (div > 32) {
-			n = 2;
-			m = div >> 2;
-		} else if (div > 16) {
-			n = 1;
-			m = div >> 1;
-		} else {
-			n = 0;
-			m = div;
-		}
-		
-	//	writel((1U << 31) | (1U << 24) | (5 << 20) | (n << 16) | (3 << 8) | (m-1), mmchost->mclkbase);
-		mmcdbg("init mmc mclk %d,pll6_clk:%d,m:%d,n:%d\n",pll6_clk/(div+1), pll6_clk,m,n);
-		//rval = readl(&mmchost->reg->clkcr) &(~0xff);
-		//writel(rval, &mmchost->reg->clkcr);
-		/*
-		writel(0x80100100,mmchost->mclkbase);
-		mmchost->mclk = 24000000;
-		*/
-		mmchost->mclk = 40000000;
-	} else {
-	//	writel(0, mmchost->mclkbase);
-	}
-	mmcdbg("init mmc %d clock and io over\n", sdc_no);
-	dumphex32("ccmu", (char*)0x01c20000, 0x100);
-	dumphex32("gpio", (char*)0x01c20800, 0x100);
-	dumphex32("mmc", (char*)mmchost->reg, 0x100);
-    return 0;
-}
-
-
 static int mmc_update_clk(struct mmc *mmc)
 {
 	struct sunxi_mmc_host* mmchost = (struct sunxi_mmc_host *)mmc->priv;
@@ -721,7 +591,6 @@ int sunxi_mmc_init(int sdc_no, unsigned bus_width)
 	if (mmc_resource_init(sdc_no))
 		return -1;
 
-	mmc_clk_io_onoff(sdc_no, 1);
 	ret = mmc_register(sdc_no, mmc);
 	if (ret < 0)
 		return -1;
@@ -731,7 +600,6 @@ int sunxi_mmc_init(int sdc_no, unsigned bus_width)
 
 int sunxi_mmc_exit(int sdc_no)
 {
-	mmc_clk_io_onoff(sdc_no, 0);
 	mmc_unregister(sdc_no);
 	memset(&mmc_dev[sdc_no], 0, sizeof(struct mmc));
 	memset(&mmc_host[sdc_no], 0, sizeof(struct sunxi_mmc_host));
